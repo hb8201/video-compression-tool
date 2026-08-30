@@ -3,6 +3,8 @@
 
 #include <QObject>
 #include <QString>
+#include <QProcess>
+#include <atomic>
 
 // 工作对象，运行在子线程中
 class CompressWorker : public QObject
@@ -10,6 +12,7 @@ class CompressWorker : public QObject
     Q_OBJECT
 public:
     explicit CompressWorker(QObject *parent = nullptr);
+    ~CompressWorker();
 
 public slots:
     // 【接口】开始压缩任务，由主线程调用
@@ -18,6 +21,7 @@ public slots:
                     int bitrate,          // 码率（kbps）
                     const QString &resolution, // 如 "1920x1080"
                     const QString &format);    // 如 "mp4"
+    void cancel();   // 取消压缩
 
 signals:
     // 发送进度 0~100
@@ -28,7 +32,12 @@ signals:
     void cancelled();
 
 private:
-    volatile bool m_cancelRequested = false; // 取消标志
+    std::atomic<bool> m_cancelRequested;   // 原子标志=
+    QProcess *m_process;            // FFmpeg 子进程
+    double m_totalDuration;         // 输入视频总时长（秒）
+
+    // 通过 ffprobe 获取视频时长
+    double getVideoDuration(const QString &path);
 };
 
 #endif // COMPRESSWORKER_H

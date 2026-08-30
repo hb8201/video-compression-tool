@@ -10,6 +10,7 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QDebug>
+#include <QFileInfo>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), m_workerThread(nullptr), m_worker(nullptr)
@@ -112,6 +113,7 @@ void MainWindow::setupUI()
     connect(m_startBtn, &QPushButton::clicked, this, &MainWindow::onStart);
     connect(m_pauseBtn, &QPushButton::clicked, this, &MainWindow::onPause);
     connect(m_cancelBtn, &QPushButton::clicked, this, &MainWindow::onCancel);
+    connect(m_formatCombo, QOverload<const QString&>::of(&QComboBox::currentTextChanged), this, &MainWindow::onFormatChanged);
 }
 
 void MainWindow::initWorker()
@@ -185,6 +187,7 @@ void MainWindow::onSelectOutput()
                                                 "视频文件 (*.mp4 *.avi *.mkv *.mov)");
     if (!path.isEmpty())
         m_outputEdit->setText(path);
+    onFormatChanged(m_formatCombo->currentText());
 }
 
 void MainWindow::onStart()
@@ -193,6 +196,15 @@ void MainWindow::onStart()
     if (m_inputEdit->text().isEmpty() || m_outputEdit->text().isEmpty()) {
         QMessageBox::warning(this, "提示", "请选择输入和输出文件");
         return;
+    }
+
+    // ----- 自动补全扩展名 -----
+    QString output = m_outputEdit->text();
+    QFileInfo outInfo(output);
+    if (outInfo.suffix().isEmpty()) {
+        QString format = m_formatCombo->currentText();  // 如 "mp4"
+        output += "." + format;
+        m_outputEdit->setText(output);  // 更新界面显示，让用户看到完整文件名
     }
 
     // 禁用界面控件，防止二次点击
@@ -205,7 +217,6 @@ void MainWindow::onStart()
 
     // 收集参数
     QString input = m_inputEdit->text();
-    QString output = m_outputEdit->text();
     int bitrate = m_bitrateCombo->currentText().toInt();
     QString resolution = m_resolutionCombo->currentText();
     QString format = m_formatCombo->currentText();
@@ -227,36 +238,45 @@ void MainWindow::onPause()
     QMessageBox::information(this, "暂停", "暂停功能待实现（需扩展worker）");
 }
 
+// void MainWindow::onCancel()
+// {
+//     // 【接口】通知 worker 取消
+//     // 由于 m_worker 在子线程，我们通过信号或 invokeMethod 设置取消标志
+//     // 我们可以在 CompressWorker 中增加一个公有槽 cancel() 来设置 m_cancelRequested
+//     // 为简化，这里我们直接设置一个标志（但跨线程不安全）
+//     // 标准做法：在 worker 中添加 cancel 槽。
+//     // 我这里演示：发送一个 signal 到 worker 的槽
+//     // 由于我们没有在 worker 中添加 cancel 槽，我们临时添加（最好在头文件中声明）
+//     // 为了完整性，我已在 compressworker.h 中添加一个公有槽，但未实现。
+//     // 我们实现一个 cancel 方法，但这里为了演示，我采用直接设置标志（但需注意线程安全）
+//     // 最好的做法是在 worker 中添加 cancel() 槽，内部设置 m_cancelRequested = true;
+//     // 并且 doCompress 循环中检查该标志。
+//     // 因为我们在 doCompress 中已经检查了 m_cancelRequested，我们可以在主线程中通过信号设置它。
+//     // 但由于 m_worker 是对象，直接调用其槽会跨线程，使用 invokeMethod。
+//     QMetaObject::invokeMethod(m_worker, [this]() {
+//         // 注意：这个 lambda 会在工作线程执行
+//         // 但由于我们直接修改 m_worker 的成员，需要确保 m_worker 可访问
+//         // 更好的方式：在 worker 中增加一个 public 槽函数 cancel()
+//         // 我们已在 compressworker.h 中声明了 cancel 槽，但未实现，现在补充
+//         // 但为了当前演示，我们强制使用 QMetaObject::invokeMethod 调用我们新加的槽
+//     }, Qt::QueuedConnection);
+
+//     // 简单起见，我们在这里调用一个 worker 的取消槽（如果存在）
+//     // 假设我们已经在 compressworker.h 添加了 public slots: void cancel();
+//     // 那么这里直接：
+//     // QMetaObject::invokeMethod(m_worker, "cancel", Qt::QueuedConnection);
+//     // 然后 disable 按钮，等待 worker 响应取消信号
+//     m_cancelBtn->setEnabled(false);
+//     m_statusLabel->setText("正在取消...");
+// }
 void MainWindow::onCancel()
 {
-    // 【接口】通知 worker 取消
-    // 由于 m_worker 在子线程，我们通过信号或 invokeMethod 设置取消标志
-    // 我们可以在 CompressWorker 中增加一个公有槽 cancel() 来设置 m_cancelRequested
-    // 为简化，这里我们直接设置一个标志（但跨线程不安全）
-    // 标准做法：在 worker 中添加 cancel 槽。
-    // 我这里演示：发送一个 signal 到 worker 的槽
-    // 由于我们没有在 worker 中添加 cancel 槽，我们临时添加（最好在头文件中声明）
-    // 为了完整性，我已在 compressworker.h 中添加一个公有槽，但未实现。
-    // 我们实现一个 cancel 方法，但这里为了演示，我采用直接设置标志（但需注意线程安全）
-    // 最好的做法是在 worker 中添加 cancel() 槽，内部设置 m_cancelRequested = true;
-    // 并且 doCompress 循环中检查该标志。
-    // 因为我们在 doCompress 中已经检查了 m_cancelRequested，我们可以在主线程中通过信号设置它。
-    // 但由于 m_worker 是对象，直接调用其槽会跨线程，使用 invokeMethod。
-    QMetaObject::invokeMethod(m_worker, [this]() {
-        // 注意：这个 lambda 会在工作线程执行
-        // 但由于我们直接修改 m_worker 的成员，需要确保 m_worker 可访问
-        // 更好的方式：在 worker 中增加一个 public 槽函数 cancel()
-        // 我们已在 compressworker.h 中声明了 cancel 槽，但未实现，现在补充
-        // 但为了当前演示，我们强制使用 QMetaObject::invokeMethod 调用我们新加的槽
-    }, Qt::QueuedConnection);
-
-    // 简单起见，我们在这里调用一个 worker 的取消槽（如果存在）
-    // 假设我们已经在 compressworker.h 添加了 public slots: void cancel();
-    // 那么这里直接：
-    // QMetaObject::invokeMethod(m_worker, "cancel", Qt::QueuedConnection);
-    // 然后 disable 按钮，等待 worker 响应取消信号
-    m_cancelBtn->setEnabled(false);
-    m_statusLabel->setText("正在取消...");
+    if (m_worker) {
+        // 跨线程调用 worker 的 cancel 槽
+        QMetaObject::invokeMethod(m_worker, "cancel", Qt::QueuedConnection);
+        m_cancelBtn->setEnabled(false);
+        m_statusLabel->setText("正在取消...");
+    }
 }
 
 // ---- 工作线程信号的响应槽 ----
@@ -292,4 +312,30 @@ void MainWindow::onWorkerCancelled()
     m_startBtn->setEnabled(true);
     m_pauseBtn->setEnabled(false);
     m_cancelBtn->setEnabled(false);
+}
+
+void MainWindow::onFormatChanged(const QString &format)
+{
+    if (format.isEmpty() || m_outputEdit->text().isEmpty())
+        return;
+
+    QString output = m_outputEdit->text();
+    QFileInfo info(output);
+    QString suffix = info.suffix();
+    QString baseName = info.baseName();
+    QString dirPath = info.absolutePath();  // 获取完整目录（不含文件名）
+
+    // 如果扩展名为空，或与当前格式不同，则替换
+    if (suffix.isEmpty() || suffix != format) {
+        QString newPath;
+        if (!dirPath.isEmpty()) {
+            // 有目录：目录 + '/' + 文件名主体 + '.' + 格式
+            newPath = dirPath + "/" + baseName + "." + format;
+        } else {
+            // 无目录（仅文件名）
+            newPath = baseName + "." + format;
+        }
+        m_outputEdit->setText(newPath);
+    }
+    // 如果扩展名已经匹配，保持原样
 }

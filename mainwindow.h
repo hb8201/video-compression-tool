@@ -33,6 +33,8 @@ private slots:
     void onProgressUpdated(int percent);
     void onCompressionFinished(bool success, const QString &message);
     void onWorkerCancelled();
+    // 输出格式改变时自动补全扩展名
+    void onFormatChanged(const QString &format);
 
 private:
     // 初始化界面布局
